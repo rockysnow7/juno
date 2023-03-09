@@ -38,10 +38,13 @@ save Person {
 };
 ```
 
-Objects can be fetched. A `get all` query will return a list of all objects which meet the criteria. A `get the` query will return the only object which meets the criteria, or will raise an error if it is possible for more than one object to be returned.
+Objects can be fetched.
+A `get all` query will return a list of all objects which meet the criteria.
+A `get the` query will return the only object which meets the criteria, or will raise an error if it is possible for more than one object to be returned.
 
 ```
-get all Person with name "John Smith";
+get the Person with name "John Smith";
+get all Person with gender Gender.Male;
 ```
 
 Objects can be edited:
