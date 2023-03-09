@@ -55,7 +55,7 @@ edit Person with name "John Smith" {
 };
 ```
 
-Python examples:
+## Python API
 
 ```python
 from juno import Store
