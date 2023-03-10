@@ -1,10 +1,12 @@
 # juno
 
-juno is a highly abstracted object store with a query language, hera, and an API.
+juno is a highly abstracted object store with a query language, hera, and an
+API.
 
 ## hera
 
-Direct types are `bool` and `num`. Indirect types are `string` and `list`.
+Primitive types are `bool`, `int`, `float`, and `string`.
+Reference types are `list` and any custom-defined types.
 
 Custom types can be defined:
 
@@ -23,7 +25,7 @@ type Person {
 }
 ```
 
-Objects can be saved:
+Entities can be saved:
 
 ```
 save Person {
@@ -38,16 +40,17 @@ save Person {
 };
 ```
 
-Objects can be fetched.
-A `get all` query will return a list of all objects which meet the criteria.
-A `get the` query will return the only object which meets the criteria, or will raise an error if it is possible for more than one object to be returned.
+Entities can be fetched.
+A `get all` query will return a list of all entities which meet the criteria.
+A `get the` query will return the only entity which meets the criteria, or
+will raise an error if it is possible for more than one entity to be returned.
 
 ```
 get the Person with name "John Smith";
 get all Person with gender Gender.Male;
 ```
 
-Objects can be edited:
+Entities can be edited:
 
 ```
 edit Person with name "John Smith" {

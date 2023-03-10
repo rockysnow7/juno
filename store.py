@@ -1,15 +1,19 @@
+import struct
+
 from typing import Any
-from data import Data, RefData, BoolData, IntData, ListData
+from data import Data, RefData, BoolData, IntData, FloatData, StringData, ListData
 
 
 DATA_TYPES_INTS = {
     RefData: 0,
     BoolData: 1,
     IntData: 2,
-    ListData: 3,
+    FloatData: 3,
+    StringData: 4,
+    ListData: 5,
 }
 DATA_TYPE_BYTES = 2 # 2 bytes = 65,536 possible data types
-INT_VALUE_BYTES = 8 # 8 bytes = i64 ints, u64 refs
+NUMBER_VALUE_BYTES = 8 # 8 bytes = i64/f64 numbers, u64 refs
 
 
 class Store:
@@ -21,6 +25,10 @@ class Store:
             return BoolData(obj)
         if isinstance(obj, int):
             return IntData(obj)
+        if isinstance(obj, float):
+            return FloatData(obj)
+        if isinstance(obj, str):
+            return StringData(obj)
         if isinstance(obj, list):
             return ListData(obj)
         raise TypeError(f"object is of the invalid type '{type(obj).__name__}'")
@@ -32,10 +40,10 @@ class Store:
             referee_obj = self.__obj_from_Data(referee_data)
             return referee_obj
 
-        if isinstance(data, BoolData):
-            return data.value
-
-        if isinstance(data, IntData):
+        if isinstance(data, BoolData) \
+        or isinstance(data, IntData) \
+        or isinstance(data, FloatData) \
+        or isinstance(data, StringData):
             return data.value
 
         if isinstance(data, ListData):
@@ -47,7 +55,7 @@ class Store:
         data_bytes = DATA_TYPES_INTS[type(data)].to_bytes(DATA_TYPE_BYTES, signed=False)
 
         if isinstance(data, RefData):
-            data_bytes += data.value.to_bytes(INT_VALUE_BYTES, signed=False)
+            data_bytes += data.value.to_bytes(NUMBER_VALUE_BYTES, signed=False)
             return data_bytes
 
         if isinstance(data, BoolData):
@@ -55,7 +63,18 @@ class Store:
             return data_bytes
 
         if isinstance(data, IntData):
-            data_bytes += data.value.to_bytes(INT_VALUE_BYTES, signed=True)
+            data_bytes += data.value.to_bytes(NUMBER_VALUE_BYTES, signed=True)
+            return data_bytes
+
+        if isinstance(data, FloatData):
+            value_bytes = bytearray(NUMBER_VALUE_BYTES)
+            struct.pack_into("d", value_bytes, 0, data.value)
+            data_bytes += bytes(value_bytes)
+            return data_bytes
+
+        if isinstance(data, StringData):
+            value_bytes = data.value.encode("utf-16")
+            data_bytes += value_bytes
             return data_bytes
 
         if isinstance(data, ListData):
@@ -80,8 +99,14 @@ class Store:
         if type_int == DATA_TYPES_INTS[IntData]:
             return IntData(int.from_bytes(value_bytes))
 
+        if type_int == DATA_TYPES_INTS[FloatData]:
+            return FloatData(struct.unpack("d", value_bytes)[0])
+
+        if type_int == DATA_TYPES_INTS[StringData]:
+            return StringData(value_bytes.decode("utf-16"))
+
         if type_int == DATA_TYPES_INTS[ListData]:
-            item_len = INT_VALUE_BYTES + DATA_TYPE_BYTES
+            item_len = NUMBER_VALUE_BYTES + DATA_TYPE_BYTES
             items_bytes = [value_bytes[i:i + item_len] for i in range(0, len(value_bytes), item_len)]
             items = [self.__Data_from_bytes(b) for b in items_bytes]
             return ListData(items)
@@ -96,7 +121,7 @@ class Store:
         return obj_id
 
     def get(self, id_: int) -> Data:
-        return self.__obj_from_Data(self.__Data_from_bytes(id_.to_bytes(INT_VALUE_BYTES, signed=False)))
+        return self.__obj_from_Data(self.__Data_from_bytes(id_.to_bytes(NUMBER_VALUE_BYTES, signed=False)))
 
     def print_entities(self) -> None:
         print(self.__entities)

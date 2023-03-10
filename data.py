@@ -28,6 +28,14 @@ class IntData(Data):
     def __init__(self, value: int) -> None:
         self.value = value
 
+class FloatData(Data):
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+class StringData(Data):
+    def __init__(self, value: str) -> None:
+        self.value = value
+
 class ListData(Data):
     def __init__(self, value: list[Any]) -> None:
         self.value = value
