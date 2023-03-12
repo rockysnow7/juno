@@ -1,7 +1,11 @@
+import os
 import struct
 
 from typing import Any
-from data import Data, RefData, BoolData, IntData, FloatData, StringData, ListData
+from pathlib import Path
+from data import Data, RefData, BoolData, IntData, FloatData, StringData, \
+                 ListData, DictData, CustomData
+from custom_type import CustomTypeDefinition
 
 
 DATA_TYPES_INTS = {
@@ -11,14 +15,48 @@ DATA_TYPES_INTS = {
     FloatData: 3,
     StringData: 4,
     ListData: 5,
+    DictData: 6,
+    CustomData: 7,
 }
-DATA_TYPE_BYTES = 2 # 2 bytes = 65,536 possible data types
+DATA_TYPE_BYTES = 1
+CUSTOM_DATA_TYPE_BYTES = 2 # 2 bytes = 65,536 possible custom data types
 NUMBER_VALUE_BYTES = 8 # 8 bytes = i64/f64 numbers, u64 refs
 
 
 class Store:
-    def __init__(self) -> None:
-        self.__entities = {}
+    def __init__(self, custom_types: list[type] = []) -> None:
+        Path(".juno").mkdir(exist_ok=True)
+        ids = [int(id_name, 16) for id_name in os.listdir(".juno")]
+        self.__current_max_entity_id = max(ids) if ids else -1
+
+        self.__custom_types = {}
+
+    def __get_entity_bytes(self, id_: int) -> bytes:
+        id_name = hex(id_)[2:]
+        with open(f".juno/{id_name}", "rb") as f:
+            entity_bytes = f.read()
+        return entity_bytes
+
+    def __save_entity_bytes(
+        self,
+        entity_bytes: bytes,
+        id_: int | None = None,
+    ) -> None:
+        if id_ is None:
+            self.__current_max_entity_id += 1
+            id_name = hex(self.__current_max_entity_id)[2:]
+
+        with open(f".juno/{id_name}", "wb+") as f:
+            f.write(entity_bytes)
+
+    def __get_custom_type_id_by_name(self, name: str) -> int | None:
+        for id_, type_ in self.__custom_types.items():
+            if type_.name == name:
+                return id_
+
+    def __define_custom_type(self, obj: object) -> None:
+        custom_type = CustomTypeDefinition.create(obj)
+        self.__custom_types[len(self.__custom_types)] = custom_type
 
     def __obj_as_Data(self, obj: Any) -> Data:
         if isinstance(obj, bool):
@@ -31,11 +69,17 @@ class Store:
             return StringData(obj)
         if isinstance(obj, list):
             return ListData(obj)
-        raise TypeError(f"object is of the invalid type '{type(obj).__name__}'")
+        if isinstance(obj, dict):
+            return DictData(obj)
+
+        print(f"{obj=}")
+        if self.__get_custom_type_id_by_name(type(obj).__name__) is None:
+            self.__define_custom_type(obj)
+        return CustomData.from_obj(obj)
 
     def __obj_from_Data(self, data: Data) -> Any:
         if isinstance(data, RefData):
-            referee_bytes = self.__entities[data.value]
+            referee_bytes = self.__get_entity_bytes(data.value)
             referee_data = self.__Data_from_bytes(referee_bytes)
             referee_obj = self.__obj_from_Data(referee_data)
             return referee_obj
@@ -49,10 +93,14 @@ class Store:
         if isinstance(data, ListData):
             items = [self.__obj_from_Data(item) for item in data.value]
             return items
+
+        if isinstance(data, DictData):
+            return data.value
         raise NotImplementedError(f"obj method for datatype '{type(data).__name__}' not implemented")
 
     def __Data_as_bytes(self, data: Data) -> bytes:
-        data_bytes = DATA_TYPES_INTS[type(data)].to_bytes(DATA_TYPE_BYTES, signed=False)
+        data_type_int = DATA_TYPES_INTS[type(data)]
+        data_bytes = data_type_int.to_bytes(DATA_TYPE_BYTES, signed=False)
 
         if isinstance(data, RefData):
             data_bytes += data.value.to_bytes(NUMBER_VALUE_BYTES, signed=False)
@@ -84,6 +132,27 @@ class Store:
                 item_ref_bytes = self.__Data_as_bytes(item_ref)
                 data_bytes += item_ref_bytes
             return data_bytes
+
+        if isinstance(data, DictData):
+            pairs_list = [[key, value] for key, value in data.value.items()]
+            pairs_list_id = self.store(pairs_list)
+            pairs_list_ref = RefData(pairs_list_id)
+            pairs_list_ref_bytes = self.__Data_as_bytes(pairs_list_ref)
+            data_bytes += pairs_list_ref_bytes
+            return data_bytes
+
+        if isinstance(data, CustomData):
+            type_id = self.__get_custom_type_id_by_name(data.type_name)
+            type_id_bytes = type_id.to_bytes(CUSTOM_DATA_TYPE_BYTES, signed=False)
+            data_bytes += type_id_bytes
+
+            fields_list = list(data.fields.values())
+            fields_list_id = self.store(fields_list)
+            fields_list_ref = RefData(fields_list_id)
+            fields_list_ref_bytes = self.__Data_as_bytes(fields_list_ref)
+            data_bytes += fields_list_ref_bytes
+
+            return data_bytes
         raise NotImplementedError(f"as_bytes method for datatype '{type(data).__name__}' not implemented")
 
     def __Data_from_bytes(self, b: bytes) -> Data:
@@ -106,22 +175,36 @@ class Store:
             return StringData(value_bytes.decode("utf-16"))
 
         if type_int == DATA_TYPES_INTS[ListData]:
-            item_len = NUMBER_VALUE_BYTES + DATA_TYPE_BYTES
+            item_len = DATA_TYPE_BYTES + NUMBER_VALUE_BYTES
             items_bytes = [value_bytes[i:i + item_len] for i in range(0, len(value_bytes), item_len)]
             items = [self.__Data_from_bytes(b) for b in items_bytes]
             return ListData(items)
+
+        if type_int == DATA_TYPES_INTS[DictData]:
+            pairs_list_ref = self.__Data_from_bytes(value_bytes)
+            pairs_list = self.get(pairs_list_ref.value)
+            d = {key: value for key, value in pairs_list}
+            return DictData(d)
+
+        if type_int == DATA_TYPES_INTS[CustomData]:
+            custom_type_bytes = value_bytes[:CUSTOM_DATA_TYPE_BYTES]
+            custom_type_int = int.from_bytes(custom_type_bytes)
+            custom_type = self.__custom_types[custom_type_int]
+
+            fields_list_ref_bytes = value_bytes[CUSTOM_DATA_TYPE_BYTES:]
+            fields_list_ref = self.__Data_from_bytes(fields_list_ref_bytes)
+            fields_list = self.get(fields_list_ref.value)
+            print(f"{fields_list=}")
         raise NotImplementedError(f"from_bytes method for byte {type_int} not implemented")
 
     def store(self, obj: Any) -> int:
         obj_data = self.__obj_as_Data(obj)
         obj_bytes = self.__Data_as_bytes(obj_data)
-        obj_id = len(self.__entities)
-        self.__entities[obj_id] = obj_bytes
+        self.__save_entity_bytes(obj_bytes)
 
-        return obj_id
+        return self.__current_max_entity_id
 
     def get(self, id_: int) -> Data:
-        return self.__obj_from_Data(self.__Data_from_bytes(id_.to_bytes(NUMBER_VALUE_BYTES, signed=False)))
-
-    def print_entities(self) -> None:
-        print(self.__entities)
+        id_bytes = id_.to_bytes(NUMBER_VALUE_BYTES, signed=False)
+        data = self.__Data_from_bytes(id_bytes)
+        return self.__obj_from_Data(data)
