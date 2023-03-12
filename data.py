@@ -67,13 +67,13 @@ class DictData(Data):
         return f"DictData({self.value})"
 
 class CustomData(Data):
-    def __init__(self, type_name: str, fields: dict[str, Data]) -> None:
+    def __init__(self, type_name: str, fields: list[Data]) -> None:
         self.type_name = type_name
         self.fields = fields
 
     @staticmethod
     def from_obj(obj: object) -> CustomData:
         type_name = type(obj).__name__
-        fields = vars(obj)
+        fields = list(vars(obj).values())
 
         return CustomData(type_name, fields)
