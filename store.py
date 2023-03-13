@@ -3,9 +3,7 @@ import struct
 
 from typing import Any, Callable
 from pathlib import Path
-from data import Data, RefData, BoolData, IntData, FloatData, StringData, \
-                 ListData, DictData, CustomData
-from custom_type import CustomTypeDefinition
+from data import Data, RefData, BoolData, IntData, FloatData, StringData, ListData, DictData, CustomData
 
 
 DATA_TYPES_INTS = {
