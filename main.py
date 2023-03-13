@@ -1,19 +1,16 @@
-from typing import Any
+from person import Person, Gender
 from store import Store
 
 
-class Person:
-    def __init__(self, name: str) -> None:
-        self.name = name
+tom = Person("Tom Smith", Gender("male"), 4, [])
+john = Person("John Smith", Gender("male"), 28, [tom])
 
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Person) and other.name == self.name
-
-bob = Person("Bob")
 store = Store()
-id_ = store.store(bob)
+store.store(john)
 
-recovered = store.get(id_)
-print(bob.name)
-print(recovered.name)
-assert recovered == bob
+a = store.get_the([
+    lambda obj: isinstance(obj, Person),
+])
+print(a)
+
+assert a == john

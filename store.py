@@ -1,7 +1,7 @@
 import os
 import struct
 
-from typing import Any
+from typing import Any, Callable
 from pathlib import Path
 from data import Data, RefData, BoolData, IntData, FloatData, StringData, \
                  ListData, DictData, CustomData
@@ -112,7 +112,6 @@ class Store:
             return items
 
         if isinstance(data, CustomData):
-            print(f"{self.__custom_types=}")
             obj = self.__custom_types[data.type_name](*data.fields)
             return obj
         raise NotImplementedError(f"obj method for datatype '{type(data).__name__}' not implemented")
@@ -200,7 +199,7 @@ class Store:
 
         if type_int == DATA_TYPES_INTS[DictData]:
             pairs_list_ref = self.__Data_from_bytes(value_bytes)
-            pairs_list = self.get(pairs_list_ref.value)
+            pairs_list = self.get_by_id(pairs_list_ref.value)
             d = {key: value for key, value in pairs_list}
             return DictData(d)
 
@@ -211,20 +210,44 @@ class Store:
 
             fields_list_ref_bytes = value_bytes[CUSTOM_DATA_TYPE_BYTES:]
             fields_list_ref = self.__Data_from_bytes(fields_list_ref_bytes)
-            fields_list = self.get(fields_list_ref.value)
-            print(f"{fields_list=}")
+            fields_list = self.get_by_id(fields_list_ref.value)
 
             return CustomData(custom_type_name, fields_list)
         raise NotImplementedError(f"from_bytes method for byte {type_int} not implemented")
 
-    def store(self, obj: Any) -> int:
+    def store(self, obj: Any, id_: int = None) -> int:
         obj_data = self.__obj_as_Data(obj)
         obj_bytes = self.__Data_as_bytes(obj_data)
-        self.__save_entity_bytes(obj_bytes)
+        self.__save_entity_bytes(obj_bytes, id_)
 
         return self.__current_max_entity_id
 
-    def get(self, id_: int) -> Data:
+    def get_by_id(self, id_: int) -> Any:
         id_bytes = id_.to_bytes(NUMBER_VALUE_BYTES, signed=False)
         data = self.__Data_from_bytes(id_bytes)
         return self.__obj_from_Data(data)
+
+    def get_all(self, conditions: list[Callable[[Any], bool]]) -> list[Any]:
+        objs = []
+        for id_name in os.listdir(".juno/entities"):
+            id_ = int(id_name, 16)
+            obj = self.get_by_id(id_)
+
+            valid = True
+            for condition in conditions:
+                if not condition(obj):
+                    valid = False
+                    break
+
+            if valid:
+                objs.append(obj)
+        return objs
+
+    def get_the(self, conditions: list[Callable[[Any], bool]]) -> Any:
+        objs = self.get_all(conditions)
+        if len(objs) == 0:
+            raise KeyError("no object with these conditions exists")
+        if len(objs) > 1:
+            raise KeyError(f"multiple ({len(objs)}) objects with these conditions exist")
+
+        return objs[0]
