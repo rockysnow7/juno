@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Any
 from abc import ABC, abstractmethod
-from custom_type import CustomTypeDefinition
 
 
 DATA_TYPES_INTS = {

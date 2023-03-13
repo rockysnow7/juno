@@ -8,9 +8,8 @@ john = Person("John Smith", Gender("male"), 28, [tom])
 store = Store()
 store.store(john)
 
-a = store.get_the([
+a = store.get_all([
     lambda obj: isinstance(obj, Person),
+    lambda obj: obj.name == "Tom Smith",
 ])
 print(a)
-
-assert a == john

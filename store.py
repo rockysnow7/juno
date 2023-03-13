@@ -2,6 +2,7 @@ import os
 import struct
 
 from typing import Any, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from data import Data, RefData, BoolData, IntData, FloatData, StringData, ListData, DictData, CustomData
 
@@ -21,6 +22,11 @@ CUSTOM_DATA_TYPE_BYTES = 2 # 2 bytes = 65,536 possible custom data types
 NUMBER_VALUE_BYTES = 8 # 8 bytes = i64/f64 numbers, u64 refs
 
 
+@dataclass
+class CustomTypeData:
+    type: type
+    primary_fields: list[str]
+
 class Store:
     def __init__(self, custom_types: list[type] = []) -> None:
         Path(".juno/entities").mkdir(parents=True, exist_ok=True)
@@ -31,7 +37,9 @@ class Store:
         type_ids = [int(id_name, 16) for id_name in os.listdir(".juno/custom_types")]
         self.__current_max_type_id = max(type_ids) if type_ids else -1
 
-        self.__custom_types = {type_.__name__: type_ for type_ in custom_types}
+        self.__custom_types = {}
+        for type_ in custom_types:
+            self.__define_custom_type(type_)
 
     def __get_entity_bytes(self, id_: int) -> bytes:
         id_name = hex(id_)[2:]
@@ -51,27 +59,41 @@ class Store:
         with open(f".juno/entities/{id_name}", "wb+") as f:
             f.write(entity_bytes)
 
-    def __get_custom_type_name(self, id_: int) -> str:
+    def __get_custom_type_data(self, id_: int) -> list[str, str | list[str]]:
         id_name = hex(id_)[2:]
-        with open(f".juno/custom_types/{id_name}", "r") as f:
-            type_name = f.read()
-        return type_name
+        with open(f".juno/custom_types/{id_name}", "rb") as f:
+            data_id_bytes = f.read()
+        data_id = int.from_bytes(data_id_bytes)
+
+        return self.get_by_id(data_id)
+
+    def __get_custom_type_name(self, id_: int) -> str:
+        return self.__get_custom_type_data(id_)[0]
+
+    def __get_custom_type_primary_fields(self, id_: int) -> list[str]:
+        return self.__get_custom_type_data(id_)[1]
 
     def __get_custom_type_id_by_name(self, name: str) -> int | None:
         for id_name in os.listdir(".juno/custom_types"):
-            with open(f".juno/custom_types/{id_name}", "r") as f:
-                type_name = f.read()
-
-            if type_name == name:
+            id_ = int(id_name, 16)
+            if self.__get_custom_type_name(id_) == name:
                 return int(id_name, 16)
 
-    def __define_custom_type(self, type_: type) -> None:
+    def __define_custom_type(
+        self,
+        type_: type,
+        primary_fields: list[str] = [],
+    ) -> None:
         self.__current_max_type_id += 1
         id_name = hex(self.__current_max_type_id)[2:]
 
-        with open(f".juno/custom_types/{id_name}", "w+") as f:
-            f.write(type_.__name__)
-        self.__custom_types[type_.__name__] = type_
+        type_data = [type_.__name__, primary_fields]
+        type_data_id = self.store(type_data)
+        type_data_id_bytes = type_data_id.to_bytes(NUMBER_VALUE_BYTES, signed=False)
+
+        with open(f".juno/custom_types/{id_name}", "wb+") as f:
+            f.write(type_data_id_bytes)
+        self.__custom_types[type_.__name__] = CustomTypeData(type_, primary_fields)
 
     def __obj_as_Data(self, obj: Any) -> Data:
         if isinstance(obj, bool):
@@ -110,7 +132,7 @@ class Store:
             return items
 
         if isinstance(data, CustomData):
-            obj = self.__custom_types[data.type_name](*data.fields)
+            obj = self.__custom_types[data.type_name].type(*data.fields)
             return obj
         raise NotImplementedError(f"obj method for datatype '{type(data).__name__}' not implemented")
 
