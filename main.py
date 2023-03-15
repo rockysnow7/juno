@@ -1,17 +1,17 @@
+import conditions
+
 from person import Person, Gender
 from store import Store
 
 
-tom = Person("Tom Smith", Gender("male"), 4, [])
-john = Person("John Smith", Gender("male"), 28, [tom])
-
 store = Store([Person, Gender], {
     "Person": ["name"],
 })
-store.store(john)
+store.store(Person("a", Gender("a"), 1, []))
+store.store(Person("a", Gender("b"), 1, []))
 
 a = store.get_all([
-    lambda obj: isinstance(obj, Person),
-    lambda obj: obj.name == "Tom Smith",
+    conditions.is_type(Person),
+    conditions.has_field("name", "a"),
 ])
 print(a)

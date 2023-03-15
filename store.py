@@ -253,6 +253,61 @@ class Store:
             return CustomData(custom_type_name, fields_list)
         raise NotImplementedError(f"from_bytes method for byte {type_int} not implemented")
 
+    def __show(
+        self,
+        obj: Any,
+        child: bool = False,
+        *,
+        base_indent_len: int = 0,
+    ) -> str:
+        base_indent = " " * base_indent_len
+        indent = " " * 4
+
+        if isinstance(obj, bool) \
+        or isinstance(obj, int) \
+        or isinstance(obj, float):
+            return base_indent + str(obj)
+
+        if isinstance(obj, str):
+            return base_indent + f"\"{obj}\""
+
+        if isinstance(obj, list):
+            if child:
+                return base_indent + "<list>"
+
+            children = [self.__show(c, True) for c in obj[:3]]
+            return base_indent + f"[{', '.join(children)}{', ...' if len(obj) > 3 else ''}]"
+
+        if isinstance(obj, dict):
+            if child:
+                return base_indent + "<dict>"
+
+            keys = []
+            values = []
+            for key, value in list(obj.items())[:3]:
+                keys.append(self.__show(key, True))
+                values.append(self.__show(value, True))
+
+            s = "{\n"
+            for key, value in zip(keys, values):
+                s += base_indent + indent + f"{key}: {value},\n"
+
+            if len(obj) > 3:
+                s += base_indent + indent + "...\n"
+            s += base_indent + "}"
+
+            return s
+
+        if child:
+            return base_indent + f"<{type(obj).__name__} object>"
+
+        name = type(obj).__name__
+        content = self.__show(
+            vars(obj),
+            base_indent_len=base_indent_len,
+        ).strip()
+        return base_indent + name + " " + content
+
     def store(self, obj: Any, id_: int = None) -> int:
         if type(obj) not in PRIMITIVE_TYPES and id_ is None:
             type_name = type(obj).__name__
@@ -267,7 +322,10 @@ class Store:
                 objs = self.get_all(conditions_)
 
                 if objs:
-                    raise ValueError(f"there already exists a {type_name} object with these primary field values")
+                    mes = f"there already exists a {type_name} object with these primary field values, namely:\n\n"
+                    mes += self.__show(objs[0], base_indent_len=4)
+
+                    raise ValueError(mes)
 
         obj_data = self.__obj_as_Data(obj)
         obj_bytes = self.__Data_as_bytes(obj_data)
