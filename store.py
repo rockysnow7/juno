@@ -1,11 +1,14 @@
 import os
 import struct
+import conditions
 
 from typing import Any, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from data import Data, RefData, BoolData, IntData, FloatData, StringData, ListData, DictData, CustomData
 
+
+PRIMITIVE_TYPES = {bool, int, float, str, list, dict}
 
 DATA_TYPES_INTS = {
     RefData: 0,
@@ -28,7 +31,11 @@ class CustomTypeData:
     primary_fields: list[str]
 
 class Store:
-    def __init__(self, custom_types: list[type] = []) -> None:
+    def __init__(
+        self,
+        custom_types: list[type] = [],
+        custom_types_primary_fields: dict[str, list[str]] = {},
+    ) -> None:
         Path(".juno/entities").mkdir(parents=True, exist_ok=True)
         Path(".juno/custom_types").mkdir(exist_ok=True)
 
@@ -39,7 +46,15 @@ class Store:
 
         self.__custom_types = {}
         for type_ in custom_types:
-            self.__define_custom_type(type_)
+            if self.__get_custom_type_id_by_name(type_.__name__) is None:
+                self.__define_custom_type(
+                    type_,
+                    custom_types_primary_fields.get(type_.__name__, []),
+                )
+            else:
+                type_id = self.__get_custom_type_id_by_name(type_.__name__)
+                primary_fields = self.__get_custom_type_primary_fields(type_id)
+                self.__custom_types[type_.__name__] = CustomTypeData(type_, primary_fields)
 
     def __get_entity_bytes(self, id_: int) -> bytes:
         id_name = hex(id_)[2:]
@@ -55,11 +70,13 @@ class Store:
         if id_ is None:
             self.__current_max_entity_id += 1
             id_name = hex(self.__current_max_entity_id)[2:]
+        else:
+            id_name = hex(id_)[2:]
 
         with open(f".juno/entities/{id_name}", "wb+") as f:
             f.write(entity_bytes)
 
-    def __get_custom_type_data(self, id_: int) -> list[str, str | list[str]]:
+    def __get_custom_type_data(self, id_: int) -> dict[str, str | list[str]]:
         id_name = hex(id_)[2:]
         with open(f".juno/custom_types/{id_name}", "rb") as f:
             data_id_bytes = f.read()
@@ -68,10 +85,10 @@ class Store:
         return self.get_by_id(data_id)
 
     def __get_custom_type_name(self, id_: int) -> str:
-        return self.__get_custom_type_data(id_)[0]
+        return self.__get_custom_type_data(id_)["name"]
 
     def __get_custom_type_primary_fields(self, id_: int) -> list[str]:
-        return self.__get_custom_type_data(id_)[1]
+        return self.__get_custom_type_data(id_)["primary_fields"]
 
     def __get_custom_type_id_by_name(self, name: str) -> int | None:
         for id_name in os.listdir(".juno/custom_types"):
@@ -82,12 +99,15 @@ class Store:
     def __define_custom_type(
         self,
         type_: type,
-        primary_fields: list[str] = [],
+        primary_fields: list[str],
     ) -> None:
         self.__current_max_type_id += 1
         id_name = hex(self.__current_max_type_id)[2:]
 
-        type_data = [type_.__name__, primary_fields]
+        type_data = {
+            "name": type_.__name__,
+            "primary_fields": primary_fields,
+        }
         type_data_id = self.store(type_data)
         type_data_id_bytes = type_data_id.to_bytes(NUMBER_VALUE_BYTES, signed=False)
 
@@ -109,8 +129,6 @@ class Store:
         if isinstance(obj, dict):
             return DictData(obj)
 
-        if self.__get_custom_type_id_by_name(type(obj).__name__) is None:
-            self.__define_custom_type(type(obj))
         return CustomData.from_obj(obj)
 
     def __obj_from_Data(self, data: Data) -> Any:
@@ -236,6 +254,21 @@ class Store:
         raise NotImplementedError(f"from_bytes method for byte {type_int} not implemented")
 
     def store(self, obj: Any, id_: int = None) -> int:
+        if type(obj) not in PRIMITIVE_TYPES and id_ is None:
+            type_name = type(obj).__name__
+            type_id = self.__get_custom_type_id_by_name(type_name)
+            type_primary_fields = self.__get_custom_type_primary_fields(type_id)
+
+            if type_primary_fields:
+                conditions_ = [conditions.is_type(type(obj))]
+                for field in type_primary_fields:
+                    condition = conditions.has_field(field, getattr(obj, field))
+                    conditions_.append(condition)
+                objs = self.get_all(conditions_)
+
+                if objs:
+                    raise ValueError(f"there already exists a {type_name} object with these primary field values")
+
         obj_data = self.__obj_as_Data(obj)
         obj_bytes = self.__Data_as_bytes(obj_data)
         self.__save_entity_bytes(obj_bytes, id_)
@@ -247,14 +280,17 @@ class Store:
         data = self.__Data_from_bytes(id_bytes)
         return self.__obj_from_Data(data)
 
-    def get_all(self, conditions: list[Callable[[Any], bool]]) -> list[Any]:
+    def get_all(self, conditions_: list[Callable[[Any], bool]]) -> list[Any]:
+        if not conditions_:
+            return []
+
         objs = []
         for id_name in os.listdir(".juno/entities"):
             id_ = int(id_name, 16)
             obj = self.get_by_id(id_)
 
             valid = True
-            for condition in conditions:
+            for condition in conditions_:
                 if not condition(obj):
                     valid = False
                     break
@@ -263,8 +299,8 @@ class Store:
                 objs.append(obj)
         return objs
 
-    def get_the(self, conditions: list[Callable[[Any], bool]]) -> Any:
-        objs = self.get_all(conditions)
+    def get_the(self, conditions_: list[Callable[[Any], bool]]) -> Any:
+        objs = self.get_all(conditions_)
         if len(objs) == 0:
             raise KeyError("no object with these conditions exists")
         if len(objs) > 1:
